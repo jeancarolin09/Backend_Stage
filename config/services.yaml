@@ -6,6 +6,12 @@
 parameters:
     locale: 'en'
     frontend_url: '%env(FRONTEND_URL)%'
+    app.base_url: '%env(APP_BASE_URL)%'
+    # 🖼️ PARAMÈTRES POUR LA GESTION DES FICHIERS (IMAGE D'ÉVÉNEMENT)
+    # Chemin absolu où les images seront stockées (ex: /var/www/project/public/uploads/events)
+    event_images_directory: '%kernel.project_dir%/public/uploads/events'
+    # Chemin public (URL) stocké en BDD et utilisé pour l'affichage (ex: uploads/events)
+    event_images_public_path: 'uploads/events'
 services:
     # default configuration for services in *this* file
     _defaults:
@@ -16,8 +22,25 @@ services:
     # this creates a service per class whose id is the fully-qualified class name
     App\:
         resource: '../src/'
+    App\Controller\EventController:
+        arguments:
+            # Mappe l'argument $eventImagesDirectory du constructeur au paramètre
+            $eventImagesDirectory: '%event_images_directory%'
+            # Mappe l'argument $eventImagesPublicPath du constructeur au paramètre
+            $eventImagesPublicPath: '%event_images_public_path%'  
+     # Configuration du nouveau service
+    App\Service\ProfilePictureService:
+        arguments:
+            # Injection de l'URL de base définie dans les paramètres
+            $baseUrl: '%app.base_url%'          
     App\EventListener\AuthenticationSuccessListener:
         tags:
             - { name: kernel.event_listener, event: lexik_jwt_authentication.on_authentication_success, method: onAuthenticationSuccess }
-    # add more service definitions when explicit configuration is needed
+           # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
+    App\EventListener\UserActivityListener:
+        arguments:
+            $em: '@doctrine.orm.entity_manager'
+        tags:
+            - { name: kernel.event_listener, event: kernel.request, method: onKernelRequest }
+ 

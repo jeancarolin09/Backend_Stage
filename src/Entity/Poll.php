@@ -15,10 +15,10 @@ class Poll
     #[ORM\Column(type: 'string', length: 255)]
     private string $question;
 
-    #[ORM\ManyToOne(targetEntity: Event::class, inversedBy: 'polls')]
+    #[ORM\ManyToOne(targetEntity: Event::class, inversedBy: 'polls', cascade: ['persist'])]
     private ?Event $event = null;
 
-    #[ORM\OneToMany(mappedBy: 'poll', targetEntity: PollOption::class, cascade: ['persist', 'remove'])]
+    #[ORM\OneToMany(mappedBy: 'poll', targetEntity: PollOption::class, cascade: ['persist', 'remove'], orphanRemoval: true)]
     private Collection $options;
 
     
@@ -52,6 +52,15 @@ class Poll
         if (!$this->options->contains($option)) {
             $this->options->add($option);
             $option->setPoll($this);
+        }
+        return $this;
+    }
+     public function removeOption(PollOption $option): self
+    {
+        if ($this->options->removeElement($option)) {
+            if ($option->getPoll() === $this) {
+                $option->setPoll(null);
+            }
         }
         return $this;
     }

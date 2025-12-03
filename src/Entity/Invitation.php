@@ -27,8 +27,9 @@ class Invitation
     #[ORM\Column(length: 255)]
     private ?string $token = null;
 
-    #[ORM\Column(type: 'boolean')]
-    private bool $confirmed = false;
+    #[ORM\Column(length: 20)]
+    private ?string $status = 'pending'; // 'pending', 'accepted', 'declined', 'maybe'
+
 
     #[ORM\Column]
     private ?\DateTimeImmutable $createdAt = null;
@@ -107,14 +108,19 @@ class Invitation
         return $this;
     }
 
-    public function isConfirmed(): bool
+    public function getStatus(): ?string
     {
-        return $this->confirmed;
+        return $this->status;
     }
 
-    public function setConfirmed(bool $confirmed): self
+    public function setStatus(string $status): static
     {
-        $this->confirmed = $confirmed;
+        $allowed = ['pending', 'accepted', 'declined', 'maybe'];
+        if (!in_array($status, $allowed)) {
+            throw new \InvalidArgumentException("Status invalide");
+        }
+        $this->status = $status;
         return $this;
     }
+
 }

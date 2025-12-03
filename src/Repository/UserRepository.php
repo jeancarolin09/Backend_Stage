@@ -24,8 +24,35 @@ class UserRepository extends ServiceEntityRepository
             ->getQuery()
             ->getOneOrNullResult();
     }
+    
+    // ✅ NOUVELLE MÉTHODE: Rechercher les utilisateurs par nom ou email
+    public function searchByNameOrEmail(string $query, int $limit = 20): array
+    {
+        $searchTerm = '%' . $query . '%';
 
+        return $this->createQueryBuilder('u')
+            ->where('u.name LIKE :query')
+            ->orWhere('u.email LIKE :query')
+            ->setParameter('query', $searchTerm)
+            ->orderBy('u.name', 'ASC')
+            ->setMaxResults($limit)
+            ->getQuery()
+            ->getResult();
+    }
+    
+    public function updateOfflineUsers()
+    {
+        $limit = new \DateTime('-2 minutes');
 
+        $qb = $this->createQueryBuilder('u')
+            ->update()
+            ->set('u.isOnline', ':false')
+            ->where('u.lastActivity < :limit')
+            ->setParameter('false', false)
+            ->setParameter('limit', $limit)
+            ->getQuery()
+            ->execute();
+    }
     //    /**
     //     * @return User[] Returns an array of User objects
     //     */

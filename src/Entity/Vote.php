@@ -13,15 +13,24 @@ class Vote
     #[ORM\Column]
     private ?int $id = null;
 
-    #[ORM\ManyToOne(inversedBy: 'votes')]
-    #[ORM\JoinColumn(nullable: false, onDelete: "CASCADE")]
-    private ?Event $event = null;
-
+    // Le sondage concerné
     #[ORM\ManyToOne]
-    private ?EventOption $eventOption = null;
+    #[ORM\JoinColumn(nullable: false, onDelete: "CASCADE")]
+    private ?Poll $poll = null;
 
+    // L'option choisie
+    #[ORM\ManyToOne(targetEntity: PollOption::class, inversedBy: 'votesList')]
+    #[ORM\JoinColumn(nullable: false)]
+    private ?PollOption $option = null;
+
+    // L'utilisateur qui a voté (optionnel si c'est une invitation)
     #[ORM\ManyToOne]
     private ?User $user = null;
+
+    // L'invitation qui a voté (optionnel si c'est un utilisateur connecté)
+    #[ORM\ManyToOne(targetEntity: Invitation::class)]
+    #[ORM\JoinColumn(nullable: true)]
+    private ?Invitation $invitation = null;
 
     #[ORM\Column]
     private ?\DateTimeImmutable $createdAt = null;
@@ -36,25 +45,25 @@ class Vote
         return $this->id;
     }
 
-    public function getEvent(): ?Event
+    public function getPoll(): ?Poll
     {
-        return $this->event;
+        return $this->poll;
     }
 
-    public function setEvent(?Event $event): static
+    public function setPoll(?Poll $poll): static
     {
-        $this->event = $event;
+        $this->poll = $poll;
         return $this;
     }
 
-    public function getEventOption(): ?EventOption
+    public function getOption(): ?PollOption
     {
-        return $this->eventOption;
+        return $this->option;
     }
 
-    public function setEventOption(?EventOption $eventOption): static
+    public function setOption(?PollOption $option): static
     {
-        $this->eventOption = $eventOption;
+        $this->option = $option;
         return $this;
     }
 
@@ -66,6 +75,17 @@ class Vote
     public function setUser(?User $user): static
     {
         $this->user = $user;
+        return $this;
+    }
+
+    public function getInvitation(): ?Invitation
+    {
+        return $this->invitation;
+    }
+
+    public function setInvitation(?Invitation $invitation): static
+    {
+        $this->invitation = $invitation;
         return $this;
     }
 
