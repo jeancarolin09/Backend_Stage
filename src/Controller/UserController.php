@@ -311,6 +311,84 @@ public function getUsers(UserRepository $repo): JsonResponse
     return new JsonResponse($data);
 }
 
+#[Route('/api/forgot-password', name: 'forgot_password', methods: ['POST'])]
+public function forgotPassword(Request $request): JsonResponse
+{
+    $data = json_decode($request->getContent(), true);
+    $email = $data['email'] ?? null;
+
+    if (!$email) {
+        return new JsonResponse(['message' => 'Email requis'], 400);
+    }
+
+    $user = $this->userRepo->findOneBy(['email' => $email]);
+
+    if (!$user) {
+        return new JsonResponse(['message' => 'Aucun compte associé à cet email'], 404);
+    }
+
+    // 🔐 Génération d’un nouveau code OTP
+    $code = (string) random_int(100000, 999999);
+    $expiresAt = (new DateTimeImmutable())->modify('+10 minutes');
+
+    $user->setVerificationCode($code);
+    $user->setCodeExpiresAt($expiresAt);
+
+    $this->em->flush();
+
+    // 📧 Envoi du mail
+    $this->emailVerifier->sendPasswordResetCode($email, $code);
+
+    return new JsonResponse([
+        'message' => 'Un code de réinitialisation a été envoyé à votre email.'
+    ], 200);
+}
+
+#[Route('/api/reset-password', name: 'reset_password', methods: ['POST'])]
+public function resetPassword(Request $request, UserPasswordHasherInterface $passwordHasher): JsonResponse
+{
+    try {
+        $data = json_decode($request->getContent(), true);
+        if (!$data) {
+            return new JsonResponse(['message' => 'JSON invalide'], 400);
+        }
+
+        $email = $data['email'] ?? null;
+        $code = $data['code'] ?? null;
+        $newPassword = $data['newPassword'] ?? null;
+
+        if (!$email || !$code || !$newPassword) {
+            return new JsonResponse(['message' => 'Champs manquants'], 400);
+        }
+
+        $user = $this->userRepo->findOneBy(['email' => $email]);
+        if (!$user) {
+            return new JsonResponse(['message' => 'Utilisateur introuvable'], 404);
+        }
+
+        $now = new DateTimeImmutable();
+        if (!$user->getCodeExpiresAt() || $user->getCodeExpiresAt() < $now) {
+            return new JsonResponse(['message' => 'Code expiré'], 400);
+        }
+
+        if ($user->getVerificationCode() !== $code) {
+            return new JsonResponse(['message' => 'Code invalide'], 400);
+        }
+
+        $user->setPassword($passwordHasher->hashPassword($user, $newPassword));
+        $user->setVerificationCode(null);
+        $user->setCodeExpiresAt(null);
+        $this->em->flush();
+
+        return new JsonResponse(['message' => 'Mot de passe réinitialisé avec succès'], 200);
+
+    } catch (\Throwable $e) {
+        error_log($e->getMessage());
+        return new JsonResponse(['message' => 'Erreur serveur: ' . $e->getMessage()], 500);
+    }
+}
+
+
 
 
 }

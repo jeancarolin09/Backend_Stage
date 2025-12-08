@@ -77,5 +77,31 @@ class EmailVerifier
     }
 }
 
+public function sendPasswordResetCode(string $email, string $code): void
+{
+    $emailToSend = (new Email())
+        ->from('maharojeancarolinmananga@gmail.com')
+        ->to($email)
+        ->subject('Réinitialisation du mot de passe')
+        ->html("
+            <div style='font-family: Arial, sans-serif; line-height: 1.6;'>
+                <h2 style='color:#333;'>Réinitialisation du mot de passe</h2>
+                <p>Voici votre code pour réinitialiser votre mot de passe :</p>
+                <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; text-align: center; margin: 20px 0;'>
+                    <span style='font-size: 32px; font-weight: bold; color: #e11d48; letter-spacing: 5px;'>$code</span>
+                </div>
+                <p style='color: #666;'>Ce code expire dans 10 minutes.</p>
+                <hr style='border: 0; border-top: 1px solid #eee; margin-top:30px;'>
+                <p style='font-size: 12px; color: #aaa;'>EventPlanner • Ne pas répondre à cet email.</p>
+            </div>
+        ");
+
+    try {
+        $this->mailer->send($emailToSend);
+    } catch (TransportExceptionInterface $e) {
+        error_log('Erreur lors de l\'envoi du code de reset: ' . $e->getMessage());
+    }
+}
+
     // L'ancienne méthode sendEmailConfirmation est retirée si vous utilisez uniquement l'OTP.
 }

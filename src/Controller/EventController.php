@@ -6,6 +6,7 @@ use App\Entity\Event;
 use App\Entity\Comment;
 use App\Entity\Like;
 use App\Entity\User;
+use App\Entity\Bookmark;
 use App\Service\ActivityLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\Request;
@@ -13,6 +14,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\Routing\Annotation\Route;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
+use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
 
 #[Route('/api/events')]
 class EventController extends AbstractController
@@ -76,14 +78,16 @@ public function listEventsPublic(EntityManagerInterface $em): JsonResponse
 
     $likeRepository = $em->getRepository(Like::class);
     $commentRepository = $em->getRepository(Comment::class);
+    $bookmarkRepository = $em->getRepository(Bookmark::class);
 
-    $data = array_map(function($e) use ($user, $likeRepository, $commentRepository) {
+    $data = array_map(function($e) use ($user, $likeRepository, $commentRepository, $bookmarkRepository) {
         $organizer = $e->getOrganizer();
 
         return [
             'id' => $e->getId(),
             'title' => $e->getTitle(),
             'image' => $e->getImage(),
+            'description' => $e->getDescription(),
             // ... (inclure tous les champs nécessaires pour la carte)
             'event_date' => $e->getEventDate()->format('Y-m-d'),
             'event_time' => $e->getEventTime()->format('H:i'),
@@ -99,7 +103,9 @@ public function listEventsPublic(EntityManagerInterface $em): JsonResponse
             'is_publicly_shared' => true,
             'likes_count' => $likeRepository->count(['event' => $e]),
             'comments_count' => $commentRepository->count(['event' => $e]),
+            'bookmarks_count' => $bookmarkRepository->count(['event' => $e]),
             'has_liked' => $user ? (bool)$likeRepository->findOneBy(['event' => $e, 'user' => $user]) : false,
+            'has_bookmarked' => $user ? (bool)$bookmarkRepository->findOneBy(['event' => $e, 'user' => $user]) : false,
         ];
     }, $events);
 
@@ -171,8 +177,8 @@ public function listEventsPublic(EntityManagerInterface $em): JsonResponse
                 'organizer' => [
                     'id' => $user->getId(),
                     'email' => $user->getEmail(),
-                    'name' => $organizer->getName(),
-                    'profilePicture' => $organizer->getProfilePicture(),
+                    'name' => $user->getName(),
+                    'profilePicture' => $user->getProfilePicture(),
                 ],
             ],
         ]);
@@ -241,8 +247,9 @@ public function listEventsPublic(EntityManagerInterface $em): JsonResponse
 
         $likeRepository = $em->getRepository(Like::class);
         $commentRepository = $em->getRepository(Comment::class);
+        $bookmarkRepository = $em->getRepository(Bookmark::class);
 
-        $data = array_map(function($e) use ($user, $likeRepository, $commentRepository) {
+        $data = array_map(function($e) use ($user, $likeRepository, $commentRepository, $bookmarkRepository) {
             
             // 💡 AJOUT DES STATISTIQUES POUR LE FRONT-END
             $likesCount = $likeRepository->count(['event' => $e]);
@@ -250,6 +257,13 @@ public function listEventsPublic(EntityManagerInterface $em): JsonResponse
             $hasLiked = $user ? (bool)$likeRepository->findOneBy(['event' => $e, 'user' => $user]) : false;
 
             $organizer = $e->getOrganizer();
+
+            // Stats
+        $likesCount = $likeRepository->count(['event' => $e]);
+        $commentsCount = $commentRepository->count(['event' => $e]);
+        $bookmarksCount = $bookmarkRepository->count(['event' => $e]);
+        $hasLiked = (bool)$likeRepository->findOneBy(['event' => $e, 'user' => $user]);
+        $hasBookmarked = (bool)$bookmarkRepository->findOneBy(['event' => $e, 'user' => $user]);
 
             return [
                 'id' => $e->getId(),
@@ -269,12 +283,13 @@ public function listEventsPublic(EntityManagerInterface $em): JsonResponse
                     'profilePicture' => $organizer->getProfilePicture(),
                 ] : null,
                 // ⭐ NOUVELLES DONNÉES D'INTERACTION
-                'likes_count' => $likesCount,
-                'comments_count' => $commentsCount,
-                'has_liked' => $hasLiked,
-                // ... (autres champs)
-            ];
-        }, $events);
+                 'likes_count' => $likesCount,
+                 'comments_count' => $commentsCount,
+                 'bookmarks_count' => $bookmarksCount,
+                 'has_liked' => $hasLiked,
+                 'has_bookmarked' => $hasBookmarked,
+        ];
+    }, $events);
 
         return new JsonResponse($data);
     }
@@ -537,6 +552,87 @@ public function listEventsPublic(EntityManagerInterface $em): JsonResponse
             'comments_count' => $em->getRepository(Comment::class)->count(['event' => $event]),
         ], 201);
     }
+     
+    #[Route('/saved/{userId}', name: 'api_list_saved_events', methods: ['GET'])]
+public function listSavedEvents(int $userId, EntityManagerInterface $em): JsonResponse
+{
+    $user = $em->getRepository(User::class)->find($userId);
+    if (!$user) {
+        return new JsonResponse(['error' => 'Utilisateur non trouvé'], 404);
+    }
+
+    // Récupérer les événements que cet utilisateur a sauvegardés
+
+    $likeRepository = $em->getRepository(Like::class);
+    $commentRepository = $em->getRepository(Comment::class);
+    $bookmarkRepository = $em->getRepository(Bookmark::class);
+
+      // Récupérer les événements sauvegardés par cet utilisateur
+    $bookmarks = $bookmarkRepository->findBy(['user' => $user]);
+    $events = array_map(fn($b) => $b->getEvent(), $bookmarks);
+
+    $data = array_map(function($e) use ($user, $likeRepository, $commentRepository, $bookmarkRepository) {
+        $organizer = $e->getOrganizer();
+
+          // Stats
+        $likesCount = $likeRepository->count(['event' => $e]);
+        $commentsCount = $commentRepository->count(['event' => $e]);
+        $bookmarksCount = $bookmarkRepository->count(['event' => $e]);
+        $hasLiked = (bool)$likeRepository->findOneBy(['event' => $e, 'user' => $user]);
+        $hasBookmarked = true; // Comme c'est dans saved, toujours true
+
+        return [
+            'id' => $e->getId(),
+            'title' => $e->getTitle(),
+            'description' => $e->getDescription(),
+            'image' => $e->getImage(),
+            'event_date' => $e->getEventDate()->format('Y-m-d'),
+            'event_time' => $e->getEventTime()->format('H:i'),
+            'event_location' => $e->getEventLocation(),
+            'latitude' => $e->getLatitude(),
+            'longitude' => $e->getLongitude(),
+            'organizer' => $organizer ? [
+                'id' => $organizer->getId(),
+                'name' => $organizer->getName(),
+                'email' => $organizer->getEmail(),
+                'profilePicture' => $organizer->getProfilePicture(),
+            ] : null,
+             'likes_count' => $likesCount,
+            'comments_count' => $commentsCount,
+            'bookmarks_count' => $bookmarksCount,
+            'has_liked' => $hasLiked,
+            'has_bookmarked' => $hasBookmarked,
+        ];
+    }, $events);
+
+    return new JsonResponse($data);
+}
+
+#[Route('/{id}/bookmark', name:'event_toggle_bookmark', methods:['POST'])]
+public function toggleBookmark(Event $event, EntityManagerInterface $em): JsonResponse
+{
+    /** @var User $user */
+    $user = $this->getUser();
+
+    $existingBookmark = $em->getRepository(Bookmark::class)->findOneBy([
+        'event' => $event,
+        'user' => $user,
+    ]);
+
+    if ($existingBookmark) {
+        $em->remove($existingBookmark);
+        $em->flush();
+        return new JsonResponse(['message'=>'Bookmark removed','bookmarked'=>false]);
+    } else {
+        $bookmark = new Bookmark();
+        $bookmark->setEvent($event);
+        $bookmark->setUser($user);
+        $em->persist($bookmark);
+        $em->flush();
+        return new JsonResponse(['message'=>'Event bookmarked','bookmarked'=>true]);
+    }
+}
+
 
    
 }

@@ -15,7 +15,8 @@ use App\Entity\Poll;
 use App\Entity\Rsvp;
 use App\Entity\Activity;
 use App\Entity\Comment; 
-use App\Entity\Like;    
+use App\Entity\Like;  
+use App\Entity\Bookmark;  
 
 #[ORM\Entity(repositoryClass: EventRepository::class)]
 #[ORM\Table(name: "event")]
@@ -86,6 +87,9 @@ class Event
     #[ORM\OneToMany(mappedBy: 'event', targetEntity: Like::class, cascade: ['persist', 'remove'], orphanRemoval: true)]
     private Collection $likes; 
 
+    #[ORM\OneToMany(mappedBy:"event", targetEntity:Bookmark::class, cascade:["persist", "remove"], orphanRemoval:true)]
+    private Collection $bookmarks;
+
     public function __construct()
     {
         $this->invitations = new ArrayCollection();
@@ -95,7 +99,8 @@ class Event
         $this->activities = new ArrayCollection();
         $this->comments = new ArrayCollection();
         $this->likes = new ArrayCollection();
-    }
+        $this->bookmarks = new ArrayCollection();
+   }
 
     // --- Invitations ---
     public function getInvitations(): Collection { return $this->invitations; }
@@ -253,6 +258,18 @@ class Event
         return $this;
     }
 
-
-
-}
+    public function getBookmarks(): Collection { return $this->bookmarks; }
+    public function addBookmark(Bookmark $bookmark): self {
+        if (!$this->bookmarks->contains($bookmark)) {
+            $this->bookmarks->add($bookmark);
+            $bookmark->setEvent($this);
+        }
+        return $this;
+    }
+    public function removeBookmark(Bookmark $bookmark): self {
+        if ($this->bookmarks->removeElement($bookmark)) {
+            if ($bookmark->getEvent() === $this) $bookmark->setEvent(null);
+        }
+        return $this;
+    }
+}   

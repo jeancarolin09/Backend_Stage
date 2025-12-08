@@ -43,15 +43,16 @@ class InvitationController extends AbstractController
         $email = $data['email'] ?? null;
         $name = $data['name'] ?? null;
         $eventId = $data['event'] ?? $data['eventID'] ?? $data['eventId'] ?? null;
-
+        
         if (!$email || !$eventId) {
             return new JsonResponse(['message' => 'Email et événement requis'], 400);
         }
-
+        
         $event = $em->getRepository(Event::class)->find($eventId);
         if (!$event) {
             return new JsonResponse(['message' => 'Événement introuvable'], 404);
         }
+        $organizer = $event->getOrganizer(); 
 
         // 🔑 Génération d’un token unique
         $token = Uuid::v4()->toRfc4122();
@@ -114,6 +115,12 @@ class InvitationController extends AbstractController
                         'id' => $event->getId(),
                         'title' => $event->getTitle(),
                     ],
+                    'organizer' => $organizer ? [
+                        'id' => $organizer->getId(),
+                        'email' => $organizer->getEmail(),
+                        'name' => $organizer->getName(),
+                        'profilePicture' => $organizer->getProfilePicture(),
+                    ] : null,
                     'confirmation_link' => $confirmationLink,
                 ],
             ]);
@@ -207,6 +214,12 @@ class InvitationController extends AbstractController
             ],
             'status' => $inv->getStatus(),
             'used' => $inv->isUsed(),
+            'organizer' => $inv->getEvent()->getOrganizer() ? [
+            'id' => $inv->getEvent()->getOrganizer()->getId(),
+            'email' => $inv->getEvent()->getOrganizer()->getEmail(),
+            'name' => $inv->getEvent()->getOrganizer()->getName(),
+            'profilePicture' => $inv->getEvent()->getOrganizer()->getProfilePicture(),
+        ] : null,
         ], $invitations);
 
         return new JsonResponse($data);

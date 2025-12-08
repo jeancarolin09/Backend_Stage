@@ -7,6 +7,8 @@ use Doctrine\DBAL\Types\Types; // Ajout pour Types::DATETIME_IMMUTABLE
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Security\Core\User\UserInterface;
 use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use DateTimeImmutable;
 
 #[ORM\Entity(repositoryClass: UserRepository::class)]
@@ -53,6 +55,14 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
 
     #[ORM\Column(type: 'datetime', nullable: true)]
     private $lastActivity;
+
+    #[ORM\OneToMany(mappedBy:"user", targetEntity:Bookmark::class, cascade:["persist", "remove"], orphanRemoval:true)]
+    private Collection $bookmarks;
+
+    public function __construct()
+     {
+      $this->bookmarks = new ArrayCollection();
+    }
         /* --------------------------
      * | GETTERS & SETTERS (Core) |
      * -------------------------- */
@@ -196,6 +206,22 @@ public function getLastActivity(): ?\DateTimeInterface
 public function setLastActivity(\DateTimeInterface $lastActivity): self
 {
     $this->lastActivity = $lastActivity;
+    return $this;
+}
+
+
+    public function getBookmarks(): Collection { return $this->bookmarks; }
+    public function addBookmark(Bookmark $bookmark): self {
+    if (!$this->bookmarks->contains($bookmark)) {
+        $this->bookmarks->add($bookmark);
+        $bookmark->setUser($this);
+    }
+    return $this;
+}
+    public function removeBookmark(Bookmark $bookmark): self {
+    if ($this->bookmarks->removeElement($bookmark)) {
+        if ($bookmark->getUser() === $this) $bookmark->setUser(null);
+    }
     return $this;
 }
 
