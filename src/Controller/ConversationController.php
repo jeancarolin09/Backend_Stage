@@ -231,7 +231,7 @@ class ConversationController extends AbstractController
     }
 
     // ✅ Supprimer un message
-    #[Route('/messages/{messageId}', methods: ['DELETE'])]
+    #[Route('/{conversationId}/messages/{messageId}', methods: ['DELETE'])]
     public function deleteMessage(Message $message, Request $request): JsonResponse
     {
         $user = $this->getUser();
