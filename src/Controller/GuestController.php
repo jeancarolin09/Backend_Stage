@@ -3,9 +3,11 @@
 namespace App\Controller;
 
 use App\Entity\Event;
+use App\Entity\User;
 use App\Entity\Invitation;
 use App\Service\ActivityLogger;
 use Doctrine\ORM\EntityManagerInterface;
+use App\Repository\UserRepository;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\Routing\Annotation\Route;
@@ -13,6 +15,13 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 
 class GuestController extends AbstractController
 {
+    private UserRepository $userRepository;
+
+    public function __construct(UserRepository $userRepository)
+    {
+        $this->userRepository = $userRepository;
+    }
+
     #[Route('/api/events/{id}/guests', name: 'add_event_guest', methods: ['POST'])]
     public function addGuest(
         Request $request,
@@ -47,6 +56,13 @@ class GuestController extends AbstractController
         $guest->setStatus('pending');
         $guest->setToken(bin2hex(random_bytes(16)));
 
+          // 🔑 Ajouter la photo depuis User
+        $invitedUser = $this->userRepository->findOneBy(['email' => $data['email']]);
+        if ($invitedUser && $invitedUser->getProfilePicture()) {
+            $guest->setProfilePicture($invitedUser->getProfilePicture());
+        }
+       
+
         $em->persist($guest);
         $em->flush();
 
@@ -65,6 +81,8 @@ class GuestController extends AbstractController
             'name' => $guest->getName(),
             'status' => $guest->getStatus(),
             'token' => $guest->getToken(),
+            'profilePicture' => $guest->getProfilePicture() ?? null, // ⚡️ ici on retourne la photo
+  
         ]);
     }
 

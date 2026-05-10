@@ -18,6 +18,9 @@ class Guest
     #[ORM\Column(length: 180)]
     private ?string $email = null;
 
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $profilePicture = null;
+
     #[ORM\Column(type: 'boolean')]
     private bool $confirmed = false;
 
@@ -29,6 +32,8 @@ class Guest
     public function setName(?string $name): self { $this->name = $name; return $this; }
     public function getEmail(): ?string { return $this->email; }
     public function setEmail(string $email): self { $this->email = $email; return $this; }
+    public function getProfilePicture(): ?string { return $this->profilePicture; }
+    public function setProfilePicture(?string $profilePicture): self { $this->profilePicture = $profilePicture; return $this; }
     public function isConfirmed(): bool { return $this->confirmed; }
     public function setConfirmed(bool $confirmed): self { $this->confirmed = $confirmed; return $this; }
     public function getEvent(): ?Event { return $this->event; }

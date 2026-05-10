@@ -14,7 +14,6 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Security\Http\Attribute\IsGranted;
 use DateTimeImmutable;
 
 #[Route('/api/conversations')]
@@ -29,8 +28,7 @@ class ConversationController extends AbstractController
 
     // ✅ Récupérer toutes les conversations de l'utilisateur
     #[Route('', methods: ['GET'])]
-    public function getConversations(ConversationRepository $conversationRepo,
-    MessageRepository $messageRepo): JsonResponse
+    public function getConversations(ConversationRepository $conversationRepo, MessageRepository $messageRepo): JsonResponse
     {
         $user = $this->getUser();
         if (!$user) return new JsonResponse(['error' => 'Unauthorized'], 401);
@@ -51,7 +49,7 @@ class ConversationController extends AbstractController
                     'name' => $u->getName(),
                     'email' => $u->getEmail(),
                     'profilePicture' => $u->getProfilePicture(),
-                    'isOnline' => $u->getIsOnline(),                // ← ICI !
+                    'isOnline' => $u->getIsOnline(),
                     'lastActivity' => $u->getLastActivity()?->format('c'),
                 ], $otherParticipants),
                 'lastMessage' => $conv->getLastMessage() ? [
@@ -62,12 +60,10 @@ class ConversationController extends AbstractController
                     'createdAt' => $conv->getLastMessage()->getCreatedAt()->format('c'),
                     'isRead' => $conv->getLastMessage()->getSender()->getId() === $user->getId() 
                                 ? true 
-                                : $conv->getLastMessage()->isRead(), // ← important
-              ] : null,
+                                : $conv->getLastMessage()->isRead(),
+                ] : null,
                 'createdAt' => $conv->getCreatedAt()->format('c'),
                 'updatedAt' => $conv->getUpdatedAt()->format('c'),
-                
-                // 🔥 FIX ICI 🔥
                 'unreadCount' => $unread[$conv->getId()] ?? 0,
             ];
         }, $conversations);
@@ -110,6 +106,12 @@ class ConversationController extends AbstractController
         $this->em->persist($conversation);
         $this->em->flush();
 
+        // 🔥 Notifier via WebSocket la création de conversation
+        $this->notifyWebSocket('conversation:created', [
+            'conversationId' => $conversation->getId(),
+            'participants' => [...$participantIds, $user->getId()],
+        ]);
+
         return $this->json(['id' => $conversation->getId(), 'created' => true], 201);
     }
 
@@ -125,7 +127,7 @@ class ConversationController extends AbstractController
         }
 
         $page = $request->query->getInt('page', 1);
-        $limit = $request->query->getInt('limit', 50);
+        $limit = $request->query->getInt('limit', 100);
 
         $messages = $this->messageRepo->findByConversation(
             $conversation,
@@ -135,6 +137,8 @@ class ConversationController extends AbstractController
 
         $data = array_map(fn(Message $msg) => [
             'id' => $msg->getId(),
+            'senderId' => $msg->getSender()->getId(),
+            'senderName' => $msg->getSender()->getName(),
             'sender' => [
                 'id' => $msg->getSender()->getId(),
                 'name' => $msg->getSender()->getName(),
@@ -142,15 +146,18 @@ class ConversationController extends AbstractController
             ],
             'content' => $msg->getContent(),
             'attachment' => $msg->getAttachmentPath(),
+            'image' => $msg->getAttachmentPath(),
+            'conversationId' => $conversation->getId(),
             'createdAt' => $msg->getCreatedAt()->format('c'),
             'editedAt' => $msg->getEditedAt()?->format('c'),
             'isOwn' => $msg->getSender()->getId() === $user->getId(),
+            'isRead' => $msg->isRead(),
         ], $messages);
 
         return $this->json($data);
     }
 
-    // ✅ Envoyer un message
+    // ✅ Envoyer un message avec WebSocket
     #[Route('/{id}/messages', methods: ['POST'])]
     public function sendMessage(Conversation $conversation, Request $request): JsonResponse
     {
@@ -178,6 +185,7 @@ class ConversationController extends AbstractController
 
         $this->em->persist($message);
         $this->em->persist($conversation);
+
         // 🔔 Créer une notification pour chaque participant sauf l'expéditeur
         foreach ($conversation->getParticipants() as $participant) {
             if ($participant->getId() === $user->getId()) continue;
@@ -191,21 +199,110 @@ class ConversationController extends AbstractController
 
             $this->em->persist($notif);
         }
+
         $this->em->flush();
 
+        // 🔥 Préparer les données du message pour WebSocket
+        $messageData = [
+            'id' => $message->getId(),
+            'content' => $message->getContent(),
+            'senderId' => $user->getId(),
+            'senderName' => $user->getName(),
+            'conversationId' => $conversation->getId(),
+            'createdAt' => $message->getCreatedAt()->format('Y-m-d H:i:s'),
+            'isOwn' => false, // Pour les destinataires
+            'isRead' => false,
+        ];
+
+        // 🔥 Émettre l'événement WebSocket pour diffuser le message en temps réel
+        $this->notifyWebSocket('message:new', [
+            'conversationId' => $conversation->getId(),
+            'message' => $messageData,
+        ]);
+
+        // Retourner le message avec isOwn=true pour l'expéditeur
         return $this->json([
             'id' => $message->getId(),
+            'senderId' => $user->getId(),
+            'senderName' => $user->getName(),
             'sender' => [
                 'id' => $user->getId(),
                 'name' => $user->getName(),
                 'profilePicture' => $user->getProfilePicture(),
             ],
             'content' => $message->getContent(),
+            'conversationId' => $conversation->getId(),
             'createdAt' => $message->getCreatedAt()->format('c'),
+            'isOwn' => true,
         ], 201);
     }
 
-    // ✅ Éditer un message
+    // ✅ Envoyer une image avec WebSocket
+    #[Route('/{id}/messages/image', methods: ['POST'])]
+    public function sendImage(Conversation $conversation, Request $request): JsonResponse
+    {
+        $user = $this->getUser();
+
+        if (!$conversation->getParticipants()->contains($user)) {
+            return $this->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $file = $request->files->get('file');
+        if (!$file) {
+            return $this->json(['error' => 'No file provided'], 400);
+        }
+
+        // Upload du fichier
+        $uploadsDirectory = $this->getParameter('kernel.project_dir') . '/public/uploads/messages';
+        if (!is_dir($uploadsDirectory)) {
+            mkdir($uploadsDirectory, 0777, true);
+        }
+
+        $newFilename = uniqid() . '.' . $file->guessExtension();
+        $file->move($uploadsDirectory, $newFilename);
+
+        // Créer le message
+        $message = new Message();
+        $message->setConversation($conversation);
+        $message->setSender($user);
+        $message->setContent('[Image]');
+        $message->setAttachmentPath('/uploads/messages/' . $newFilename);
+
+        $conversation->setUpdatedAt(new DateTimeImmutable());
+        $conversation->setLastMessage($message);
+
+        $this->em->persist($message);
+        $this->em->persist($conversation);
+        $this->em->flush();
+
+        // 🔥 Notifier via WebSocket
+        $messageData = [
+            'id' => $message->getId(),
+            'content' => $message->getContent(),
+            'image' => $message->getAttachmentPath(),
+            'senderId' => $user->getId(),
+            'senderName' => $user->getName(),
+            'conversationId' => $conversation->getId(),
+            'createdAt' => $message->getCreatedAt()->format('Y-m-d H:i:s'),
+            'isOwn' => false,
+            'isRead' => false,
+        ];
+
+        $this->notifyWebSocket('message:new', [
+            'conversationId' => $conversation->getId(),
+            'message' => $messageData,
+        ]);
+
+        return $this->json([
+            'id' => $message->getId(),
+            'senderId' => $user->getId(),
+            'image' => $message->getAttachmentPath(),
+            'createdAt' => $message->getCreatedAt()->format('c'),
+            'isOwn' => true,
+        ], 201);
+    }
+
+    // ✅ Éditer un message avec WebSocket
     #[Route('/messages/{messageId}', methods: ['PUT'])]
     public function editMessage(Message $message, Request $request): JsonResponse
     {
@@ -227,10 +324,18 @@ class ConversationController extends AbstractController
 
         $this->em->flush();
 
+        // 🔥 Notifier via WebSocket
+        $this->notifyWebSocket('message:edited', [
+            'conversationId' => $message->getConversation()->getId(),
+            'messageId' => $message->getId(),
+            'content' => $message->getContent(),
+            'editedAt' => $message->getEditedAt()->format('c'),
+        ]);
+
         return $this->json(['success' => true]);
     }
 
-    // ✅ Supprimer un message
+    // ✅ Supprimer un message avec WebSocket
     #[Route('/{conversationId}/messages/{messageId}', methods: ['DELETE'])]
     public function deleteMessage(Message $message, Request $request): JsonResponse
     {
@@ -240,10 +345,66 @@ class ConversationController extends AbstractController
             return $this->json(['error' => 'Unauthorized'], 403);
         }
 
+        $conversationId = $message->getConversation()->getId();
+        $messageId = $message->getId();
+
         $this->em->remove($message);
         $this->em->flush();
 
+        // 🔥 Notifier via WebSocket
+        $this->notifyWebSocket('message:deleted', [
+            'conversationId' => $conversationId,
+            'messageId' => $messageId,
+        ]);
+
         return $this->json(['success' => true]);
+    }
+
+    // ✅ Marquer la conversation comme lue avec WebSocket
+    #[Route('/{conversationId}/read', methods: ['PATCH'])]
+    public function markConversationAsRead(int $conversationId, MessageRepository $repo, EntityManagerInterface $em): JsonResponse
+    {
+        $user = $this->getUser();
+
+        $repo->markConversationAsRead($conversationId, $user);
+
+        // 🔥 Notifier via WebSocket que les messages ont été lus
+        $this->notifyWebSocket('conversation:read', [
+            'conversationId' => $conversationId,
+            'userId' => $user->getId(),
+        ]);
+
+        return $this->json(['success' => true]);
+    }
+
+    // 🔥 Fonction helper pour notifier le serveur WebSocket
+    private function notifyWebSocket(string $event, array $data): void
+    {
+        $websocketUrl = $_ENV['WEBSOCKET_SERVER_URL'] ?? 'http://localhost:3001';
+        
+        try {
+            $ch = curl_init($websocketUrl . '/emit');
+            curl_setopt($ch, CURLOPT_POST, 1);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+                'event' => $event,
+                'data' => $data
+            ]));
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 1); // Timeout court pour ne pas bloquer
+            
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            
+            if ($httpCode !== 200) {
+                error_log("WebSocket notification failed with HTTP code: $httpCode");
+            }
+            
+            curl_close($ch);
+        } catch (\Exception $e) {
+            // Log l'erreur mais ne pas bloquer l'exécution
+            error_log("WebSocket notification error: " . $e->getMessage());
+        }
     }
 
     // Fonction helper
@@ -257,15 +418,4 @@ class ConversationController extends AbstractController
         }
         return implode(', ', array_map(fn(User $u) => $u->getName(), array_slice($participants, 0, 2))) . '...';
     }
-
-    #[Route('/{conversationId}/read', methods: ['PATCH'])]
-public function markConversationAsRead(int $conversationId, MessageRepository $repo, EntityManagerInterface $em)
-{
-    $user = $this->getUser();
-
-    $repo->markConversationAsRead($conversationId, $user);
-
-    return $this->json(['success' => true]);
-}
-
 }

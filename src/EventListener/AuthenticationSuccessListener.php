@@ -28,6 +28,8 @@ class AuthenticationSuccessListener implements EventSubscriberInterface
         $data = $event->getData();
         $user = $event->getUser();
 
+        $data['id'] = $user->getId();
+
         if (!$user) {
             return;
         }

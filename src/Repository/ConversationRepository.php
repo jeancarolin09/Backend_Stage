@@ -26,20 +26,19 @@ class ConversationRepository extends ServiceEntityRepository
             ->getResult();
     }
 
-    // Trouver une conversation existante par liste de participants
-    public function findByParticipantIds(array $participantIds): ?Conversation
-    {
-        $qb = $this->createQueryBuilder('c');
-        
-        foreach ($participantIds as $i => $id) {
-            $qb->innerJoin('c.participants', "p{$i}", 'WITH', "p{$i}.id = :id{$i}")
-               ->setParameter("id{$i}", $id);
-        }
+   public function findByParticipantIds(array $participantIds): ?Conversation
+{
+    $participantIds = array_unique($participantIds);
 
-        $qb->having($qb->expr()->eq("COUNT(DISTINCT c.id)", count($participantIds)))
-           ->groupBy('c.id');
+    $qb = $this->createQueryBuilder('c')
+        ->join('c.participants', 'p')
+        ->where('p.id IN (:ids)')
+        ->groupBy('c.id')
+        ->having('COUNT(DISTINCT p.id) = :count')
+        ->setParameter('ids', $participantIds)
+        ->setParameter('count', count($participantIds));
 
-        $result = $qb->getQuery()->getResult();
-        return $result[0] ?? null;
-    }
+    return $qb->getQuery()->getOneOrNullResult();
+}
+
 }

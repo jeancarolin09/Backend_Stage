@@ -54,10 +54,10 @@ class InvitationController extends AbstractController
         }
         $organizer = $event->getOrganizer(); 
 
-        // 🔑 Génération d’un token unique
+        //  Génération d’un token unique
         $token = Uuid::v4()->toRfc4122();
 
-        // 💾 Création de l’invitation
+        //  Création de l’invitation
         $invitation = new Invitation();
         $invitation->setEvent($event)
             ->setEmail($email)
@@ -65,6 +65,14 @@ class InvitationController extends AbstractController
             ->setToken($token)
             ->setStatus('pending')
             ->setUsed(false);
+            
+            // Récupérer l'utilisateur avant
+            $invitedUser = $this->userRepository->findOneBy(['email' => $email]);
+
+            // Copier la photo si elle existe
+            if ($invitedUser && $invitedUser->getProfilePicture()) {
+                $invitation->setProfilePicture($invitedUser->getProfilePicture());
+            }
 
         $em->persist($invitation);
         $em->flush();
@@ -81,7 +89,7 @@ class InvitationController extends AbstractController
         );
 
 
-            $invitedUser = $this->userRepository->findOneBy(['email' => $email]);
+         $invitedUser = $this->userRepository->findOneBy(['email' => $email]);
         if ($invitedUser) {
             $notification = new Notification();
             $notification->setRecipient($invitedUser);
@@ -111,6 +119,7 @@ class InvitationController extends AbstractController
                     'email' => $invitation->getEmail(),
                     'status' => $invitation->getStatus(),
                     'used' => $invitation->isUsed(),
+                    'profilePicture' => $invitedUser ? $invitedUser->getProfilePicture() : null,
                     'event' => [
                         'id' => $event->getId(),
                         'title' => $event->getTitle(),
@@ -190,6 +199,7 @@ class InvitationController extends AbstractController
     {
         $invitations = $repo->findBy(['email' => $email]);
 
+        $invitedUser = $this->userRepository->findOneBy(['email' => $email]);
         $data = array_map(fn($inv) => [
             'id' => $inv->getId(),
             'token' => $inv->getToken(),
@@ -214,6 +224,7 @@ class InvitationController extends AbstractController
             ],
             'status' => $inv->getStatus(),
             'used' => $inv->isUsed(),
+            'profilePicture' => $invitedUser ? $invitedUser->getProfilePicture() : null,
             'organizer' => $inv->getEvent()->getOrganizer() ? [
             'id' => $inv->getEvent()->getOrganizer()->getId(),
             'email' => $inv->getEvent()->getOrganizer()->getEmail(),
